@@ -3,7 +3,7 @@ const path = require('path');
 const request = require('request-promise-native');
 const cheerio = require('cheerio');
 
-const MYSPACE_USERNAME = 'f3ather';
+const MYSPACE_USERNAME = 'cgalt23';
 const WEBHOOK_URL = 'xxx';
 const MONITOR_INTERVAL = 3500;
 
@@ -43,12 +43,24 @@ const parseData = async data => {
         .find('[data-image-url]')
         .attr('data-image-url');
 
-      cache.set(identifier, imgUrl);
+      const textEl = $(el)
+        .parent()
+        .parent()
+        .find('.postText');
 
-      await alert(identifier, imgUrl, true);
+      let text = null;
+
+      if (textEl) {
+        text = textEl.text();
+      }
+
+      cache.set(identifier, { text, image: imgUrl });
+
+      await alert(identifier, text, imgUrl);
     }
   });
 
+  // otherwise it's just a text post
   $('.statusPost').each(async (i, el) => {
     const identifier = $(el)
       .find('[data-entity-key]')
@@ -59,16 +71,16 @@ const parseData = async data => {
         .find('.postText')
         .text();
 
-      cache.set(identifier, txt);
+      cache.set(identifier, { text: txt });
 
-      await alert(identifier, txt);
+      await alert(identifier, txt, null);
     }
   });
 };
 
-const buildEmbed = (content, isImage = false) => {
+const buildEmbed = (content, imageUrl) => {
   const embed = {
-    title: `New ${MYSPACE_USERNAME} ${isImage ? 'Image' : 'Post'}`,
+    title: `New Content`,
     url: 'https://myspace.com/${MYSPACE_USERNAME}',
     color: 9903813,
     timestamp: new Date().toISOString(),
@@ -79,25 +91,27 @@ const buildEmbed = (content, isImage = false) => {
     }
   };
 
-  if (isImage) {
+  if (imageUrl) {
     embed.image = {
-      url: content
+      url: imageUrl
     };
-  } else {
+  }
+
+  if (content) {
     embed.description = content;
   }
 
   return embed;
 };
-const alert = async (identifier, content, isImage = false) => {
-  const embed = buildEmbed(content, isImage);
+const alert = async (identifier, content, imageUrl) => {
+  const embed = buildEmbed(content, imageUrl);
 
   const params = {
     url: WEBHOOK_URL,
     method: 'POST',
     json: true,
     body: {
-      username: 'F3ather Myspace Monitor',
+      username: `${MYSPACE_USERNAME} Myspace Monitor`,
       avatar_url:
         'https://cdn.discordapp.com/app-icons/520849817988104207/10c1a280fb12480f6feb512fb600866a.png?size=256',
       embeds: [embed]
@@ -111,7 +125,7 @@ const alert = async (identifier, content, isImage = false) => {
     setTimeout(async () => await alert(identifier, content, isImage), 1000);
   }
 
-  console.log(`[NEW CONTENT] [${identifier}] ${content}`);
+  console.log(`[NEW CONTENT] [${identifier}] ${content} (${imageUrl})`);
 };
 
 const scrape = async () => {
