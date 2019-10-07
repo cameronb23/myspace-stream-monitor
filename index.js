@@ -3,13 +3,40 @@ const path = require('path');
 const request = require('request-promise-native');
 const cheerio = require('cheerio');
 
-const MYSPACE_USERNAME = 'cgalt23';
+const MYSPACE_USERNAME = 'f3ather';
 const WEBHOOK_URL = 'xxx';
 const MONITOR_INTERVAL = 3500;
 
 let cache = new Map();
 
-const makeRequest = async () => {
+const ProxyRegex = /^(\d+\.\d+\.\d+\.\d+)\:(\d+)\:([^\:]*)\:([^\$]*)$/g;
+const proxies = [];
+
+const parseProxies = async () => {
+  return new Promise((resolve, reject) => {
+    const lineReader = require('readline').createInterface({
+      input: fs.createReadStream(path.join(__dirname, 'proxies.txt'))
+    });
+
+    lineReader.on('line', line => {
+      const matches = ProxyRegex.exec(line);
+
+      if (matches && matches.length >= 2) {
+        const [, ip, port, user, pass] = matches;
+
+        const newProxyFormat = `http://${user}:${pass}@${ip}:${port}`;
+
+        proxies.push(newProxyFormat);
+      }
+    });
+
+    lineReader.on('close', () => {
+      return resolve();
+    });
+  });
+};
+
+const makeRequest = async proxyIndex => {
   const params = {
     url: `https://myspace.com/${MYSPACE_USERNAME}`,
     method: 'GET',
@@ -19,11 +46,16 @@ const makeRequest = async () => {
     }
   };
 
+  if (proxyIndex && proxies.length > 0) {
+    params.proxy = proxies[proxyIndex];
+  }
+
   try {
     const body = await request(params);
 
     return body;
   } catch (e) {
+    console.error(e);
     throw new Error('Error fetching data');
   }
 };
@@ -128,9 +160,9 @@ const alert = async (identifier, content, imageUrl) => {
   console.log(`[NEW CONTENT] [${identifier}] ${content} (${imageUrl})`);
 };
 
-const scrape = async () => {
+const scrape = async proxyIndex => {
   try {
-    const data = await makeRequest();
+    const data = await makeRequest(proxyIndex);
 
     const result = await parseData(data);
 
@@ -148,30 +180,47 @@ const scrape = async () => {
   }
 };
 
-const start = async () => {
-  // load data
-  const id = setInterval(async () => {
-    await scrape();
-  }, 3500);
-  fs.readFile(path.join(__dirname, 'data.json'), async (e, data) => {
-    if (e) {
-      console.error(e);
-      process.exit(1);
+const monitor = async () => {
+  let proxyIndex = 0;
+
+  setInterval(async () => {
+    if (proxyIndex < proxies.length) {
+      proxyIndex += 1;
+    } else if (proxyIndex >= proxies.length) {
+      proxyIndex = 0;
     }
 
+    await scrape(proxyIndex);
+  }, MONITOR_INTERVAL);
+};
+
+const start = async () => {
+  // load data
+
+  console.log('[INFO] Loading proxies');
+
+  if (fs.existsSync(path.join(__dirname, 'proxies.txt'))) {
+    await parseProxies();
+  }
+
+  console.log(`[INFO] Loaded ${proxies.length} proxies`);
+
+  console.log(`[INFO] Starting`);
+
+  if (fs.existsSync(path.join(__dirname, 'data.json'))) {
     try {
+      const data = fs.readFileSync(path.join(__dirname, 'data.json'));
+
       const json = await JSON.parse(data);
 
       cache = new Map(json);
-
-      const id = setInterval(async () => {
-        await scrape();
-      }, MONITOR_INTERVAL);
     } catch (e) {
       console.error(e);
       process.exit(1);
     }
-  });
+  }
+
+  await monitor();
 };
 
 start();
